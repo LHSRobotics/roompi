@@ -73,11 +73,3 @@ $ ->
 		$('body').on 'touchend', (e) ->
 			sendCmd("drive", [0,0])
 			$('body').off('touchend touchmove');
-
-window.onHLSReady = () ->
-	streamUrl = "stream.m3u8"
-	
-	vid = window.document["stream"]
-	vid.playerLoad(streamUrl)
-	vid.playerPlay()
-	

@@ -104,13 +104,4 @@
     });
   });
 
-  window.onHLSReady = function() {
-    var streamUrl, vid;
-
-    streamUrl = "stream.m3u8";
-    vid = window.document["stream"];
-    vid.playerLoad(streamUrl);
-    return vid.playerPlay();
-  };
-
 }).call(this);

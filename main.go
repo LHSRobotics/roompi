@@ -5,6 +5,8 @@ import (
 	"flag"
 	"io"
 	"log"
+	"time"
+	"os/exec"
 	"net/http"
 	"os"
 	"code.google.com/p/go.net/websocket"
@@ -60,6 +62,49 @@ var tty = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
 
 var r roomba.Roomba
 
+//raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
+func raspistill() {
+	args := []string{"raspistill", "-n",
+		"-w", "854", "-h", "480",
+		"-vf",
+		"-q", "5", "-tl", "100",
+		"-o", "/tmp/pic.jpg", "-t", "999999999",
+	}
+	for {
+		start := time.Now()
+		c := exec.Command(args[0], args[1:]...)
+		output, err := c.CombinedOutput()
+		if err != nil {
+			log.Printf("error running raspistill:", err, output)
+		} else if time.Since(start) < time.Second {
+			log.Printf("raspistill exited too quickly:", output)
+		}
+	}
+}
+
+// TODO proxy this
+// or better, replace this with something in go (how hard can it be?!)
+// or even better, use a webrtc vp8 stream instead
+// mjpg_streamer -i "input_file.so -f /home/pi/poomba/ui -n pic.jpg" -o output_http.so 
+func mjpg_streamer() {
+	const path = "/home/pi/mjpg-streamer/mjpg-streamer"
+	args := []string{path + "/mjpg_streamer",
+		"-i", path + "/input_file.so -f /tmp -n pic.jpg",
+		"-o", path + "/output_http.so",
+	}
+	
+	for {
+		start := time.Now()
+		c := exec.Command(args[0], args[1:]...)
+		output, err := c.CombinedOutput()
+		if err != nil {
+			log.Printf("error running raspistill:", err, output)
+		} else if time.Since(start) < time.Second {
+			log.Printf("raspistill exited too quickly:", output)
+		}
+	}
+}
+
 func main() {
 	flag.Parse()
 	f, err := os.OpenFile(*tty, os.O_RDWR, 0)
@@ -73,6 +118,9 @@ func main() {
 	if err != nil {
 		log.Fatal("can't send command to roomba", err)
 	}
+	
+	go raspistill()
+	go mjpg_streamer()
 	
 	http.Handle("/cmd", websocket.Handler(sockHandler))
 	http.Handle("/", http.FileServer(http.Dir(*dataRoot)))
