@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+
+<meta charset=utf-8>
+<meta name="viewport" content="width=device-width, height=device-height, user-scalable=no">
+
+<link rel="stylesheet" href="style.css">
+
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js"></script>
+<script src="roomba.js"></script>
+
+<title>Roomba</title>
+
+<body>
+
+<button id="clean">clean</button>
+<button id="dock">dock</button>
+<button id="start">start</button>
+<button id="safe">safe</button>
+<button id="power">poweroff</button>
+
+<!--<video controls="controls" width="1280" height="720" autoplay="autoplay" >
+      <source src="stream.m3u8" type="application/x-mpegURL" />
+</video>-->
+
+<object data="HLSProviderChromeless.swf" type="application/x-shockwave-flash" id="stream" width="640" height="480">
+	<param name="movie"  value="HLSProviderChromeless.swf" />
+	<param name="swliveconnect" value="true" />
+	<param name="allowScriptAccess" value="sameDomain" />
+	<param name="allowFullScreen" value="true" />
+</object>
