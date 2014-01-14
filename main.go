@@ -66,7 +66,7 @@ var r roomba.Roomba
 func raspistill() {
 	args := []string{"raspistill", "-n",
 		"-w", "854", "-h", "480",
-		"-vf",
+		"-rot", "180",
 		"-q", "5", "-tl", "100",
 		"-o", "/tmp/pic.jpg", "-t", "999999999",
 	}
