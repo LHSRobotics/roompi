@@ -3,12 +3,15 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
-	"time"
-	"os/exec"
 	"net/http"
 	"os"
+	"os/exec"
+	"time"
+
 	"code.google.com/p/go.net/websocket"
 
 	"github.com/saljam/roomba"
@@ -62,13 +65,16 @@ var tty = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
 
 var r roomba.Roomba
 
+const picFile = "/tmp/pic.jpg"
+
 //raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
+// TODO read stdout
 func raspistill() {
 	args := []string{"raspistill", "-n",
 		"-w", "854", "-h", "480",
 		"-rot", "180",
 		"-q", "5", "-tl", "100",
-		"-o", "/tmp/pic.jpg", "-t", "999999999",
+		"-o", picFile,
 	}
 	for {
 		start := time.Now()
@@ -82,26 +88,26 @@ func raspistill() {
 	}
 }
 
-// TODO proxy this
-// or better, replace this with something in go (how hard can it be?!)
-// or even better, use a webrtc vp8 stream instead
-// mjpg_streamer -i "input_file.so -f /home/pi/poomba/ui -n pic.jpg" -o output_http.so 
-func mjpg_streamer() {
-	const path = "/home/pi/mjpg-streamer/mjpg-streamer"
-	args := []string{path + "/mjpg_streamer",
-		"-i", path + "/input_file.so -f /tmp -n pic.jpg",
-		"-o", path + "/output_http.so",
-	}
-	
+func camStreamer(w http.ResponseWriter, r *http.Request) {
+	const boundary = "MAGIC"
+	const headerf = "\r\n" +
+		"--" + boundary + "\r\n" +
+		"Content-Type: image/jpeg\r\n" + 
+		"Content-Length: %d\r\n" +
+		"X-Timestamp: 0.000000\r\n"+
+		"\r\n"
+		
+	w.Header().Add("Content-Type", "multipart/x-mixed-replace;boundary="+boundary)
+
 	for {
-		start := time.Now()
-		c := exec.Command(args[0], args[1:]...)
-		output, err := c.CombinedOutput()
+		f, err := ioutil.ReadFile(picFile)
 		if err != nil {
-			log.Printf("error running raspistill:", err, output)
-		} else if time.Since(start) < time.Second {
-			log.Printf("raspistill exited too quickly:", output)
+			log.Println(err)
 		}
+		w.Write([]byte(fmt.Sprintf(headerf, len(f))))
+		w.Write(f)
+		log.Println("wrote some", len(f))
+		time.Sleep(100* time.Millisecond)
 	}
 }
 
@@ -118,11 +124,11 @@ func main() {
 	if err != nil {
 		log.Fatal("can't send command to roomba", err)
 	}
-	
-	go raspistill()
-	go mjpg_streamer()
-	
+
+	go raspistill() // change this to launch streamer
+
 	http.Handle("/cmd", websocket.Handler(sockHandler))
+	http.HandleFunc("/cam", camStreamer)
 	http.Handle("/", http.FileServer(http.Dir(*dataRoot)))
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
