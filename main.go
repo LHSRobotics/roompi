@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"code.google.com/p/go.net/websocket"
-
 	"github.com/saljam/roomba"
 )
 
@@ -68,7 +68,7 @@ var r roomba.Roomba
 const picFile = "/tmp/pic.jpg"
 
 //raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
-// TODO read stdout
+// TODO replace this stuff with cgo calls to mmal
 func raspistill() {
 	args := []string{"raspistill", "-n",
 		"-w", "854", "-h", "480",
@@ -88,27 +88,59 @@ func raspistill() {
 	}
 }
 
-func camStreamer(w http.ResponseWriter, r *http.Request) {
-	const boundary = "MAGIC"
+var streams struct {
+	m map[chan []byte]bool
+	sync.Mutex
+}
+
+const boundaryWord = "MAGIC"
+
+func camStreamer() {
 	const headerf = "\r\n" +
-		"--" + boundary + "\r\n" +
-		"Content-Type: image/jpeg\r\n" + 
+		"--" + boundaryWord + "\r\n" +
+		"Content-Type: image/jpeg\r\n" +
 		"Content-Length: %d\r\n" +
-		"X-Timestamp: 0.000000\r\n"+
+		"X-Timestamp: 0.000000\r\n" +
 		"\r\n"
-		
-	w.Header().Add("Content-Type", "multipart/x-mixed-replace;boundary="+boundary)
 
 	for {
+		time.Sleep(time.Second)
 		f, err := ioutil.ReadFile(picFile)
 		if err != nil {
 			log.Println(err)
 		}
-		w.Write([]byte(fmt.Sprintf(headerf, len(f))))
-		w.Write(f)
-		log.Println("wrote some", len(f))
-		time.Sleep(100* time.Millisecond)
+
+		// Might be worth thinking about buffers properly at some point.
+		b := []byte(fmt.Sprintf(headerf, len(f)))
+		b = append(b, f...)
+
+		streams.Lock()
+		for s := range streams.m {
+			s <- b
+		}
+		streams.Unlock()
 	}
+}
+
+func camHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Add("Content-Type", "multipart/x-mixed-replace;boundary="+boundaryWord)
+
+	c := make(chan []byte)
+	streams.Lock()
+	streams.m[c] = true
+	streams.Unlock()
+
+	for {
+		b := <-c
+		_, err := w.Write(b)
+		if err != nil {
+			break
+		}
+	}
+
+	streams.Lock()
+	delete(streams.m, c)
+	streams.Unlock()
 }
 
 func main() {
@@ -126,9 +158,11 @@ func main() {
 	}
 
 	go raspistill() // change this to launch streamer
+	streams.m = make(map[chan []byte]bool)
+	go camStreamer()
 
 	http.Handle("/cmd", websocket.Handler(sockHandler))
-	http.HandleFunc("/cam", camStreamer)
+	http.HandleFunc("/cam", camHandler)
 	http.Handle("/", http.FileServer(http.Dir(*dataRoot)))
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
