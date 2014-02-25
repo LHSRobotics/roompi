@@ -5,15 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"sync"
 	"time"
 
 	"code.google.com/p/go.net/websocket"
+	"github.com/howeyc/fsnotify"
 	"github.com/saljam/roomba"
 )
 
@@ -62,19 +63,18 @@ func sockHandler(ws *websocket.Conn) {
 var addr = flag.String("addr", ":8001", "http address to listen on")
 var dataRoot = flag.String("data", "./ui", "data dir")
 var tty = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
+var picFile = flag.String("pic", "/tmp/roompi/pic.jpg", "temp file to store camera image")
 
 var r roomba.Roomba
 
-const picFile = "/tmp/pic.jpg"
-
 //raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
-// TODO replace this stuff with cgo calls to mmal
+// TODO replace this stuff with cgo calls to mmal (or wait for v4l to happen...)
 func raspistill() {
 	args := []string{"raspistill", "-n",
 		"-w", "854", "-h", "480",
 		"-rot", "180",
-		"-q", "5", "-tl", "100",
-		"-o", picFile,
+		"-q", "5", "-tl", "500",
+		"-o", *picFile,
 	}
 	for {
 		start := time.Now()
@@ -103,20 +103,46 @@ func camStreamer() {
 		"X-Timestamp: 0.000000\r\n" +
 		"\r\n"
 
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = w.Watch(path.Dir(*picFile))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	buf := make([]byte, len(headerf))
+
 	for {
-		time.Sleep(time.Second)
-		f, err := ioutil.ReadFile(picFile)
-		if err != nil {
+		select {
+		case <-w.Event:
+		case err := <-w.Error:
 			log.Println(err)
 		}
 
-		// Might be worth thinking about buffers properly at some point.
-		b := []byte(fmt.Sprintf(headerf, len(f)))
-		b = append(b, f...)
+		file, err := os.Open(*picFile)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		info, err := file.Stat()
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		if len(buf) < int(info.Size())+len(headerf)+20 {
+			buf = make([]byte, int(info.Size())*2)
+		}
+
+		header := fmt.Sprintf(headerf, info.Size())
+		copy(buf, header)
+
+		io.ReadFull(file, buf[len(header):])
 
 		streams.Lock()
 		for s := range streams.m {
-			s <- b
+			s <- buf
 		}
 		streams.Unlock()
 	}
@@ -155,6 +181,10 @@ func main() {
 	err = r.Start()
 	if err != nil {
 		log.Fatal("can't send command to roomba", err)
+	}
+
+	if _, err := os.Stat(path.Dir(*picFile)); os.IsNotExist(err) {
+		os.MkdirAll(path.Dir(*picFile), 0775)
 	}
 
 	go raspistill() // change this to launch streamer
