@@ -60,10 +60,10 @@ func sockHandler(ws *websocket.Conn) {
 }
 
 var (
-	addr     = flag.String("addr", ":8001", "http address to listen on")
+	addr     = flag.String("addr", ":8002", "http address to listen on")
 	dataRoot = flag.String("data", "./ui", "data dir")
 	tty      = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
-	videoDev = flag.String("video", "/dev/video0", "video input device")
+	videoSource = flag.String("video", "/dev/video0", "video input device")
 	raspi    = flag.Bool("raspistill", false, "use raspistill for video")
 	picFile  = flag.String("pic", "/tmp/roompi/pic.jpg", "temp file to store camera image")
 
@@ -134,19 +134,21 @@ func raspiwatcher() {
 
 func main() {
 	flag.Parse()
+	
 	f, err := os.OpenFile(*tty, os.O_RDWR, 0)
 	if err != nil {
-		log.Fatal("can't open serial file", err)
+		log.Println("can't open serial file", err)
+	}
+
+	r = roomba.Roomba{f}
+	err = r.Start()
+	if err != nil {
+		log.Println("disabled roomba control: can't send start command to roomba:", err)
+	} else {
+		http.Handle("/cmd", websocket.Handler(sockHandler))
 	}
 
 	stream = mjpeg.NewStream()
-	r = roomba.Roomba{f}
-
-	err = r.Start()
-	if err != nil {
-		log.Println("can't send start command to roomba", err)
-	}
-
 	if *raspi {
 		if _, err := os.Stat(path.Dir(*picFile)); os.IsNotExist(err) {
 			os.MkdirAll(path.Dir(*picFile), 0775)
@@ -154,10 +156,9 @@ func main() {
 		go raspiwatcher()
 		go raspistill()
 	} else {
-		// TODO start v4l capture here
+		go vidCapture()
 	}
 
-	http.Handle("/cmd", websocket.Handler(sockHandler))
 	http.Handle("/cam", stream)
 	http.Handle("/", http.FileServer(http.Dir(*dataRoot)))
 	log.Fatal(http.ListenAndServe(*addr, nil))
