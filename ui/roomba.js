@@ -11,7 +11,9 @@
       return console.log(m);
     };
     s.onopen = function() {
-      return console.log("connected");
+      console.log("connected");
+      sendCmd("start", []);
+      return sendCmd("safe", []);
     };
     s.onclose = function() {
       return console.log("closed");
@@ -28,21 +30,6 @@
       };
       return s.send(JSON.stringify(msg));
     };
-    $('#clean').on('click', function() {
-      return sendCmd("clean", []);
-    });
-    $('#dock').on('click', function() {
-      return sendCmd("dock", []);
-    });
-    $('#safe').on('click', function() {
-      return sendCmd("safe", []);
-    });
-    $('#power').on('click', function() {
-      return sendCmd("power", []);
-    });
-    $('#start').on('click', function() {
-      return sendCmd("start", []);
-    });
     curb = function(min, max, n) {
       if (n > max) {
         return max;

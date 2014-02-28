@@ -5,6 +5,8 @@ $ ->
 		console.log(m)
 	s.onopen = () ->
 		console.log("connected")
+		sendCmd("start", [])
+		sendCmd("safe", [])
 	s.onclose = () ->
 		console.log("closed")
 	s.onerror = () ->
@@ -16,17 +18,6 @@ $ ->
 			args: args
 		s.send(JSON.stringify(msg))
 	
-	$('#clean').on 'click', ->
-		sendCmd("clean", [])
-	$('#dock').on 'click', ->
-		sendCmd("dock", [])
-	$('#safe').on 'click', ->
-		sendCmd("safe", [])
-	$('#power').on 'click', ->
-		sendCmd("power", [])
-	$('#start').on 'click', ->
-		sendCmd("start", [])
-
 	curb = (min, max, n) ->
 		if n > max
 			max 
