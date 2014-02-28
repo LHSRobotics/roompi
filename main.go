@@ -60,12 +60,16 @@ func sockHandler(ws *websocket.Conn) {
 	}
 }
 
-var addr = flag.String("addr", ":8001", "http address to listen on")
-var dataRoot = flag.String("data", "./ui", "data dir")
-var tty = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
-var picFile = flag.String("pic", "/tmp/roompi/pic.jpg", "temp file to store camera image")
+var (
+	addr     = flag.String("addr", ":8001", "http address to listen on")
+	dataRoot = flag.String("data", "./ui", "data dir")
+	tty      = flag.String("tty", "/dev/ttyAMA0", "path to serial interface")
+	videoDev = flag.String("video", "/dev/video0", "video input device")
+	raspi    = flag.Bool("raspistill", false, "use raspistill for video")
+	picFile  = flag.String("pic", "/tmp/roompi/pic.jpg", "temp file to store camera image")
 
-var r roomba.Roomba
+	r roomba.Roomba
+)
 
 //raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
 // TODO replace this stuff with cgo calls to mmal (or wait for v4l to happen...)
@@ -93,7 +97,7 @@ var streams struct {
 	sync.Mutex
 }
 
-const boundaryWord = "MAGIC"
+const boundaryWord = "MJPEGBOUNDARY"
 
 func camStreamer() {
 	const headerf = "\r\n" +
@@ -139,6 +143,7 @@ func camStreamer() {
 		copy(buf, header)
 
 		io.ReadFull(file, buf[len(header):])
+		file.Close()
 
 		streams.Lock()
 		for s := range streams.m {
@@ -180,14 +185,17 @@ func main() {
 
 	err = r.Start()
 	if err != nil {
-		log.Fatal("can't send command to roomba", err)
+		log.Println("can't send start command to roomba", err)
 	}
 
-	if _, err := os.Stat(path.Dir(*picFile)); os.IsNotExist(err) {
-		os.MkdirAll(path.Dir(*picFile), 0775)
+	if *raspi {
+		if _, err := os.Stat(path.Dir(*picFile)); os.IsNotExist(err) {
+			os.MkdirAll(path.Dir(*picFile), 0775)
+		}
+		go raspistill() // change this to launch streamer
+	} else {
+		// TODO start v4l capture here
 	}
-
-	go raspistill() // change this to launch streamer
 	streams.m = make(map[chan []byte]bool)
 	go camStreamer()
 
