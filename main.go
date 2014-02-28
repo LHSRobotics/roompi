@@ -3,18 +3,17 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path"
-	"sync"
 	"time"
 
 	"code.google.com/p/go.net/websocket"
 	"github.com/howeyc/fsnotify"
+	"github.com/saljam/mjpeg"
 	"github.com/saljam/roomba"
 )
 
@@ -68,7 +67,8 @@ var (
 	raspi    = flag.Bool("raspistill", false, "use raspistill for video")
 	picFile  = flag.String("pic", "/tmp/roompi/pic.jpg", "temp file to store camera image")
 
-	r roomba.Roomba
+	r      roomba.Roomba
+	stream *mjpeg.Stream
 )
 
 //raspistill -n -w 640 -h 480 -q 5 -o poomba/ui/pic.jpg -tl 100 -t 999999999 -th 0:0:0
@@ -92,21 +92,7 @@ func raspistill() {
 	}
 }
 
-var streams struct {
-	m map[chan []byte]bool
-	sync.Mutex
-}
-
-const boundaryWord = "MJPEGBOUNDARY"
-
-func camStreamer() {
-	const headerf = "\r\n" +
-		"--" + boundaryWord + "\r\n" +
-		"Content-Type: image/jpeg\r\n" +
-		"Content-Length: %d\r\n" +
-		"X-Timestamp: 0.000000\r\n" +
-		"\r\n"
-
+func raspiwatcher() {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
@@ -116,7 +102,7 @@ func camStreamer() {
 		log.Fatal(err)
 	}
 
-	buf := make([]byte, len(headerf))
+	buf := make([]byte, 0)
 
 	for {
 		select {
@@ -135,43 +121,15 @@ func camStreamer() {
 			log.Println(err)
 			continue
 		}
-		if len(buf) < int(info.Size())+len(headerf)+20 {
-			buf = make([]byte, int(info.Size())*2)
+		if len(buf) < int(info.Size()) {
+			buf = make([]byte, int(info.Size()))
 		}
 
-		header := fmt.Sprintf(headerf, info.Size())
-		copy(buf, header)
-
-		io.ReadFull(file, buf[len(header):])
+		io.ReadFull(file, buf)
 		file.Close()
 
-		streams.Lock()
-		for s := range streams.m {
-			s <- buf
-		}
-		streams.Unlock()
+		stream.UpdateJPEG(buf)
 	}
-}
-
-func camHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Add("Content-Type", "multipart/x-mixed-replace;boundary="+boundaryWord)
-
-	c := make(chan []byte)
-	streams.Lock()
-	streams.m[c] = true
-	streams.Unlock()
-
-	for {
-		b := <-c
-		_, err := w.Write(b)
-		if err != nil {
-			break
-		}
-	}
-
-	streams.Lock()
-	delete(streams.m, c)
-	streams.Unlock()
 }
 
 func main() {
@@ -181,6 +139,7 @@ func main() {
 		log.Fatal("can't open serial file", err)
 	}
 
+	stream = mjpeg.NewStream()
 	r = roomba.Roomba{f}
 
 	err = r.Start()
@@ -192,15 +151,14 @@ func main() {
 		if _, err := os.Stat(path.Dir(*picFile)); os.IsNotExist(err) {
 			os.MkdirAll(path.Dir(*picFile), 0775)
 		}
-		go raspistill() // change this to launch streamer
+		go raspiwatcher()
+		go raspistill()
 	} else {
 		// TODO start v4l capture here
 	}
-	streams.m = make(map[chan []byte]bool)
-	go camStreamer()
 
 	http.Handle("/cmd", websocket.Handler(sockHandler))
-	http.HandleFunc("/cam", camHandler)
+	http.Handle("/cam", stream)
 	http.Handle("/", http.FileServer(http.Dir(*dataRoot)))
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
